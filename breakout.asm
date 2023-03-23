@@ -21,6 +21,22 @@ ADDR_DSPL:
 # The address of the keyboard. Don't forget to connect it!
 ADDR_KBRD:
     .word 0xffff0000
+# Constant color values
+WALL_CLR:
+	.word 0xc0c0c0
+RED:
+	.word 0xff0000
+GREEN:
+	.word 0x00ff00
+BLUE:
+	.word 0x0000ff
+BLACK:
+	.word 0x000000
+PADDLE_COLOUR:
+	.word 0x00ffff
+# address offset between rows
+OFFSET:
+	.word 128
 
 ##############################################################################
 # Mutable Data
@@ -35,10 +51,10 @@ ADDR_KBRD:
 	# Run the Brick Breaker game.
 main:
     # Initialize the game
-    li $t1, 0xff0000        # $t1 = red
-    li $t2, 0x00ff00        # $t2 = green
-    li $t3, 0x0000ff        # $t3 = blue
-    li $t4, 0xc0c0c0	    # $t4 = light gray (wall colour)
+    lw $t1, RED        # $t1 = red
+    lw $t2, GREEN        # $t2 = green
+    lw $t3, BLUE        # $t3 = blue
+    lw $t4, WALL_CLR	    # $t4 = light gray (wall colour)
     
     lw $t0, ADDR_DSPL       # $t0 = base address for display
     
@@ -134,6 +150,14 @@ draw_ball:
 	
 	# draw ball at s0
 	sw $a3, 0($s0)
+	
+	# restore mem
+	lw $t1, 0($sp)			# restore $t1
+	addi $sp, $sp, 4
+	lw $t0, 0($sp)			# restore $t0
+	addi $sp, $sp, 4
+	lw $s0, 0($sp)			# restore $s0
+	addi $sp, $sp, 4
 end_ball:
 # END FUNCTION: draw_draw ball
 
@@ -174,16 +198,15 @@ draw_brick:
 	jr $ra
 end_brick:
 
-# FUNCTION: draw a single paddle
+# FUNCTION: draw a single paddle (save paddle location to $s0)
 # param: 
 #		$a0 - left most location
-#		$a1 - colour of brick
-#		$a2 - length of brick
+#		$a1 - colour of paddle
+#		$a2 - length of paddle
 j end_paddle		# skip function
 draw_paddle:
-	# allocate mem on stack
-	addi $sp, $sp, -4
-	sw $s0, 0($sp)			# store $s0 on top of stack
+	# NO NEED TO SAVE S0 ON STACK BC WE WANT TO MODIFY IT
+	
 	add $s0, $a0, $a2		# s0 = last pixel of the paddle
 	# start drawing brick from left to right
 	dp_loop:
@@ -193,14 +216,43 @@ draw_paddle:
 		j dp_loop
 	end_dp_loop:
 	
-	# restore register values
-	lw $s0, 0($sp)
-	addi $sp, $sp, 4
-	
 	# return
 	jr $ra
 end_paddle:
-# END FUNCTION: paddle
+# END FUNCTION: draw paddle
+
+# FUNCTION: ERASE a single paddle
+# param: 
+#		$a0 - left most location
+#		$a1 - Nothing (don't care)
+#		$a2 - length of paddle
+j end_erase_paddle		# skip function
+erase_paddle:
+	# allocate mem
+	addi $sp, $sp, -4		# store s0 on stack
+	sw $s0, 0($sp)
+	addi $sp, $sp, -4		# store t0 on stack
+	sw $t0, 0($sp)
+	
+	add $s0, $a0, $a2		# s0 = last pixel of the paddle
+	# start drawing brick from right to left
+	ep_loop:
+	beq $s0, $a0, end_ep_loop	# while s0 != a0
+		lw $t0, BLACK
+		sw $t0, 0($s0)			# draw black pixel to s0
+		addi $s0, $s0, -4	# move pixel left by 1
+		j ep_loop
+	end_ep_loop:
+	
+	# restore mem
+	lw $t0, 0($sp)			# restore t0
+	addi $sp, $sp, 4
+	lw $s0, 0($sp)			# restore s0
+	addi $sp, $sp, 4
+	# return
+	jr $ra
+end_erase_paddle:
+# END FUNCTION: ERASE paddle
 
 # FUNCTION: draws row or bricks starting at $a0
 j end_brick_row				# skip over function
@@ -285,4 +337,101 @@ game_loop:
 	# 4. Sleep
 
     #5. Go back to 1
+    
+    # KEYBOARD INPUTS
+    # (1) Check if keypressed
+    lw $t4, ADDR_KBRD               # $t4 = base address for keyboard
+    lw $t8, 0($t4)                  # Load first word from keyboard (1 if keypressed)
+    
+    bne $t8, 1, else_key				# check if keypressed. Jump otherwise
+    	lw $a0, 4($t4)				# pass keycode as arg
+    	jal keyboard_inputs			# evaluate keypress
+    else_key:
+    
     b game_loop
+
+
+# FUNCTION: keyboard_inputs
+keyboard_inputs:
+	addi $sp, $sp, -4				# store prev return address on stack
+	sw $ra, 0($sp)
+	
+	beq $a0, 0x61, key_a			# key was a
+	beq $a0, 0x64, key_d			# key was d
+	
+	lw $ra 0($sp)					# restore return address
+	addi $sp, $sp, 4	
+	jr $ra
+end_keyboard_inputs:
+
+# move left
+key_a:
+	# allocate mem
+	addi $sp, $sp, -4				# store $ra on stack
+	sw $ra, 0($sp)					
+	addi $sp, $sp, -4				# store $t0 on stack
+	sw $t0, 0($sp)
+	addi $sp, $sp, -4				# store $t1 on stack
+	sw $t1, 0($sp)
+	
+	div $t1, $s0, 128				# t1 = s0 // 128 (integer division)
+	mul $t0, $t1, 128				# t0 = t1 * 128
+	sub $t1, $s0, $t0				# t1 = s0 % 128 to see offset from left wall
+	
+	beq $t1, 4, hit_left			# check if $t1 has space to move left
+		move $a0, $s0
+		lw $a1, BLACK
+		li $a2, 20					# set length to 5
+		jal draw_paddle				# erases old paddle with black
+		addi $a0, $a0, -4			# move paddle left
+		lw $a1, PADDLE_COLOUR		# change back to OG colour				
+		jal draw_paddle				# draw new paddle
+	hit_left:
+	
+	# restore mem
+	lw $t1, 0($sp)					# restore $t1
+	addi $sp, $sp, 4
+	lw $t0, 0($sp)					# restore $t0
+	addi $sp, $sp, 4
+	lw $ra, 0($sp)					# restore $ra
+	addi $sp, $sp, 4
+	# return
+	jr $ra
+end_key_a:
+
+# move right
+key_d:
+	# allocate mem
+	addi $sp, $sp, -4				# store $ra on stack
+	sw $ra, 0($sp)					
+	addi $sp, $sp, -4				# store $t0 on stack
+	sw $t0, 0($sp)
+	addi $sp, $sp, -4				# store $t1 on stack
+	sw $t1, 0($sp)
+	
+	div $t1, $s0, 128				# t1 = s0 // 128 (integer division)
+	mul $t0, $t1, 128				# t0 = t1 * 128
+	sub $t1, $s0, $t0				# t1 = s0 % 128 to see offset from left wall
+	
+	beq $t1, 100, hit_right			# 128 - 20 (paddle size) - 8 check if $t1 has space to move right
+		move $a0, $s0
+		lw $a1, BLACK
+		li $a2, 20					# set length to 5
+		jal draw_paddle				# erases old paddle with black
+		addi $a0, $a0, 4			# move paddle left
+		lw $a1, PADDLE_COLOUR		# change back to OG colour				
+		jal draw_paddle				# draw new paddle
+	hit_right:
+	
+	# restore mem
+	lw $t1, 0($sp)					# restore $t1
+	addi $sp, $sp, 4
+	lw $t0, 0($sp)					# restore $t0
+	addi $sp, $sp, 4
+	lw $ra, 0($sp)					# restore $ra
+	addi $sp, $sp, 4
+	# return
+	jr $ra
+end_key_d:
+	
+	
