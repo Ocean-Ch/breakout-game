@@ -35,8 +35,8 @@ BALL_Y:				.word 16
 BALL_VELX:			.word -1
 BALL_VELY:			.word 1
 # BALL SPEED
-BALL_MAX_TIME:		.word 20 # max value that timer resets to
-BALL_CURR:			.word 20 # current time
+BALL_MAX_TIME:		.word 10 # max value that timer resets to
+BALL_CURR:			.word 10 # current time
 
 
 ##############################################################################
@@ -60,6 +60,8 @@ main:
     lw $t0, ADDR_DSPL       # $t0 = base address for display
     
     addi $t5, $t0, 128		# $t5 = last address in first row
+	# draw black over screen
+	jal cover_screen
 
 # draw wall ceiling
 draw_ceil:
@@ -88,6 +90,8 @@ end_ceil:
 	addi $a0, $t0, 4		# $a0 = third pixel on first row
 	addi $t6, $zero, 5
 	sll $t6, $t6, 7			# set $t6 = 5th row offset (5 * 128)
+	
+	# note that row 0, col 0 is left most px (start counting from 0 instead of 1)
 	add $a0, $a0, $t6		# row 5, col 3 (initial brick)
 	# draw first row
 	move $a1, $t1			# set a1 == red
@@ -492,6 +496,9 @@ move_ball:
 		mflo $t0			# t0 stores negative velocity
 		sw $t0, BALL_VELX	# update BALL_VELX
 		# BREAK BRICK AT T3
+		# a0 - new X offset
+		# a1 - current Y offset
+		# jal break_brick
 	NO_COLLIDE_X:
 	lw $a0, BALL_X			# a0 - BALL_X value
 	add $a0, $t0, $a0		# a0 - add velocity to ball_x
@@ -512,6 +519,9 @@ move_ball:
 		mflo $t1			# t1 stores negative velocity
 		sw $t1, BALL_VELY	# update BALL_Y
 		# BREAK BRICK AT T3
+		# a0 - new X offset
+		# a1 - new Y offset
+		#jal break_brick
 	NO_COLLIDE_Y:
 	lw $a1, BALL_Y			# a1 - BALL_Y value
 	add $a1, $t1, $a1		# a1 - new Y offset
@@ -593,6 +603,51 @@ compute_loc:
 	
 	jr $ra
 end_compute_loc:
+
+# draw black over entire screen
+cover_screen:
+	# STORE REG ON STACK
+	addi $sp, $sp, -20		# space for 3 reg values
+	sw $ra, 0($sp)			# store ra
+	sw $a0, 4($sp)			# store a0
+	sw $a1, 8($sp)			# store a1
+	sw $t0, 12($sp)			# store t0
+	sw $t1, 16($sp)			# store t1
+	
+	li $a0, 32				# a0 = bottom right x coord + 1 (since we want to compute <)
+	li $a1, 31				# a1 = bottom right y coord
+	# compute bottom right pixel
+	jal compute_loc			# v0 - absolute address of bottom right px + 4px
+	
+	lw $t0, ADDR_DSPL		# t0 - base address of bmp dspl
+	lw $t1, BLACK			# t1 - black
+	# loop over all addresses until end bottom right pixel
+	cs_loop:
+	beq $t0, $v0, end_cs_loop	# while t0 <= bottom right px
+		sw $t1, 0($t0)			# draw black at curr
+		addi $t0, $t0, 4		# move right 1 px
+		j cs_loop				
+	end_cs_loop:
+	
+	# RESTORE REG VALUES
+	lw $ra, 0($sp)			# restore ra
+	lw $a0, 4($sp)			# restore a0
+	lw $a1, 8($sp)			# restore a1
+	lw $t0, 12($sp)			# restore t0
+	lw $t1, 16($sp)			# restore t1
+	addi $sp, $sp, 20		# restore sp val
+	
+	# RETURN
+	jr $ra
+end_cover_screen:
+
+# break the brick given the collision coordinate as a0, a1
+#	a0 - x collision coord
+#	a1 - y collision coord
+break_brick:
+	# computer beginning of brick
+	
+end_break_brick:
 
 # checks if the player has died
 die:
