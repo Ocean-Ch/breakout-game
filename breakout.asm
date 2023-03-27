@@ -85,7 +85,7 @@ end_ceil:
 	jal draw_wall			# draw vert wall starting from top right
 
 # draw bricks
-	addi $a2, $zero, 20		# brick size = 20 (5 * 4)
+	li $a2, 20				# brick size = 20 (5 * 4)
 	# find initial position of brick
 	addi $a0, $t0, 4		# $a0 = third pixel on first row
 	addi $t6, $zero, 5
@@ -267,6 +267,9 @@ end_erase_paddle:
 # END FUNCTION: ERASE paddle
 
 # FUNCTION: draws row or bricks starting at $a0
+#	a0 - abs address of first brick
+#	a1 - colour of bricks
+#	a2 - length of bricks in exact px
 j end_brick_row				# skip over function
 draw_brick_row:
 	# allocate mem on stack
@@ -452,6 +455,8 @@ key_d:
 	jr $ra
 end_key_d:
 
+# CHECKS COLLISIONS, MOVES THE BALL, UPDATES XY VELOCITY, UPDATES X,Y VALUES.
+# IF COLLIDES, CALL FUNCTION TO DAMAGE THE BRICK
 move_ball:
 	# store ra into stack pointer
 	addi $sp, $sp, -4		# store ra on stack
@@ -495,10 +500,10 @@ move_ball:
 		mult $t0, $t5		# multiply t0 by -1
 		mflo $t0			# t0 stores negative velocity
 		sw $t0, BALL_VELX	# update BALL_VELX
-		# BREAK BRICK AT T3
 		# a0 - new X offset
 		# a1 - current Y offset
-		# jal break_brick
+		move $a2, $t4		# pass colour into break_brick
+		jal break_brick		# a0, a1 already contains correct values to break brick
 	NO_COLLIDE_X:
 	lw $a0, BALL_X			# a0 - BALL_X value
 	add $a0, $t0, $a0		# a0 - add velocity to ball_x
@@ -518,10 +523,10 @@ move_ball:
 		mult $t1, $t5		# multiply t1 by -1
 		mflo $t1			# t1 stores negative velocity
 		sw $t1, BALL_VELY	# update BALL_Y
-		# BREAK BRICK AT T3
 		# a0 - new X offset
 		# a1 - new Y offset
-		#jal break_brick
+		move $a2, $t4		# pass in brick colour to break_brick
+		jal break_brick		# a0, a1 already contains correct values for break_brick
 	NO_COLLIDE_Y:
 	lw $a1, BALL_Y			# a1 - BALL_Y value
 	add $a1, $t1, $a1		# a1 - new Y offset
@@ -641,17 +646,80 @@ cover_screen:
 	jr $ra
 end_cover_screen:
 
-# break the brick given the collision coordinate as a0, a1
+# break the brick given the collision coordinate as a0, a1*
+# *NOTE: only breaks if given coord is a valid (breakable) brick coord. DO NOTHING OTHERWISE
 #	a0 - x collision coord
 #	a1 - y collision coord
+#	a2 - brick colour
 break_brick:
-	# computer beginning of brick
+	# STORE MEM ON STACK
+	addi $sp, $sp, -36		# allocate mem for 8 regs
+	sw $ra, 0($sp)			# store ra
+	sw $a0, 4($sp)			# store a0
+	sw $a1, 8($sp)			# store a1
+	sw $a2, 12($sp)			# store a2
+	sw $t0, 16($sp)			# store t0
+	sw $t1, 20($sp)			# store t1
+	sw $t2, 24($sp)			# store t2
+	sw $t3, 28($sp)			# store t3
+	sw $t4, 32($sp)			# store t4
 	
+	# CHECK IF BRICK
+	# NOTE THAT IS (breakable) BRICK IFF 2 <= X <= 30, 5 <= Y <= 15
+	blt $a0, 2, not_brick		# branch if a0 < 2
+	bgt $a0, 30, not_brick		# branch if a0 > 30
+	blt $a1, 5, not_brick		# branch if a1 < 5
+	bgt $a1, 15, not_brick		# branch if a1 > 15
+	
+	# NOTE: x diff between bricks is 6, y diff between bricks is 3
+	addi $t0, $a0, -2			# calibrate coordinates (bricks start on col 2)
+	addi $t1, $a1, -5			# bricks start on row 5
+	
+	li $t3, 6					# t3 - x dist btwn bricks
+	li $t4, 3					# t4 - y dist btwn bricks
+	
+	div $t0, $t0, $t3			# t0 - int div by 6 to see which column
+	div $t1, $t1, $t4			# t1 - int div by 3 to see which row
+	mult $t0, $t3
+	mflo $t0					# t0 - calibrated x coord of leftmost px on brick
+	mult $t1, $t4
+	mflo $t1					# t1 - calibrated y coord of upmost px on brick
+	
+	addi $t0, $t0, 1			# reset x calibration
+	addi $t1, $t1, 5			# reset y calibration
+	
+	# note that t0, t1 are xy coord of left-upper most px of brick
+	move $a0, $t0				# prep args to compute absolute location
+	move $a1, $t1				
+	jal compute_loc				# v0 = abs address of top-left px of brick
+
+	move $a0, $v0				# prep args to draw brick (a0 - abs address of starting point)
+	# TEST
+	lw $a1, BLACK				# load in black
+	li $a2, 20					# set brick length to 5 (4 * 20)
+	jal draw_brick				# replaces brick with black brick
+	
+	not_brick:
+	
+	lw $ra, 0($sp)			# restore ra
+	lw $a0, 4($sp)			# restore a0
+	lw $a1, 8($sp)			# restore a1
+	lw $a2, 12($sp)			# restore a2
+	lw $t0, 16($sp)			# store t0
+	lw $t1, 20($sp)			# store t1
+	lw $t2, 24($sp)			# restore t2
+	lw $t3, 28($sp)			# restore t3
+	lw $t4, 32($sp)			# restore t4
+	addi $sp, $sp, 36		# restore stack pt
+	
+	# RETURN
+	jr $ra
 end_break_brick:
 
 # checks if the player has died
 die:
-	li $v0, 10				# quit gracefully
+	# TODO do something cooler
+	li $v0, 10				# quit game
 	syscall
 	jr $ra
 end_die:
