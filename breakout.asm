@@ -30,10 +30,10 @@ BALL_COLOUR:		.word 0xff00ff
 # address offset between rows
 OFFSET:				.word 128
 # INITIAL BALL POSITION AND VELOCITIES
-BALL_X:				.word 18
+BALL_X:				.word 16
 BALL_Y:				.word 16
-BALL_VELX:			.word 1
-BALL_VELY:			.word -1
+BALL_VELX:			.word -1
+BALL_VELY:			.word 1
 # BALL SPEED
 BALL_MAX_TIME:		.word 20 # max value that timer resets to
 BALL_CURR:			.word 20 # current time
@@ -145,13 +145,9 @@ draw_ball:
 	sw $t2, 0($sp)			# store $t2 on stack
 	
 	# NOTE: a0 = x	a1 = y
-	add $t0, $a1, $zero		# store x offset
-	sll $t0, $t0, 2			# multiply by 4
-	add $s0, $a0, $zero		# store y offset
-	sll $s0, $s0, 7			# multiply by 128
-	add $s0, $s0, $t0		# xy offset
-	lw $t2, ADDR_DSPL		# load base address
-	add $s0, $s0, $t2		# absolute address at xy
+	
+	jal compute_loc			# v0 = absolute address at xy
+	move $s0 $v0
 	
 	# draw ball at s0
 	sw $a3, 0($s0)
@@ -481,6 +477,8 @@ move_ball:
 	# compute new location
 	lw $t0, BALL_VELX		# load velocities
 	lw $t1, BALL_VELY
+	
+	# CHECK COLLISIONS
 	add $a0, $t0, $a0		# a0 - new X offset
 	# a1 remains to be BALL_Y
 	jal compute_loc
@@ -493,6 +491,7 @@ move_ball:
 		mult $t0, $t5		# multiply t0 by -1
 		mflo $t0			# t0 stores negative velocity
 		sw $t0, BALL_VELX	# update BALL_VELX
+		# BREAK BRICK AT T3
 	NO_COLLIDE_X:
 	lw $a0, BALL_X			# a0 - BALL_X value
 	add $a0, $t0, $a0		# a0 - add velocity to ball_x
@@ -512,10 +511,18 @@ move_ball:
 		mult $t1, $t5		# multiply t1 by -1
 		mflo $t1			# t1 stores negative velocity
 		sw $t1, BALL_VELY	# update BALL_Y
+		# BREAK BRICK AT T3
 	NO_COLLIDE_Y:
 	lw $a1, BALL_Y			# a1 - BALL_Y value
 	add $a1, $t1, $a1		# a1 - new Y offset
 	sw $a1, BALL_Y			# update BALL_Y value
+	
+	# a0 = BALL_X, a1 = BALL_Y
+	# Check if ball outside region
+	blt $a1, 32, no_death	# if BALL_Y < 32 (upper bound), branch out
+		# otherwise, jump to death function
+		jal die
+	no_death:
 	
 	# DRAW BALL AT NEW LOCATION
 	# a0 = BALL_X, a1 = BALL_Y
@@ -564,9 +571,9 @@ compute_loc:
 	sw $t2, 0($sp)			# store $t2 on stack
 	
 	# NOTE: a0 = x	a1 = y
-	add $t0, $a1, $zero		# store x offset
+	add $t0, $a0, $zero		# store x offset
 	sll $t0, $t0, 2			# multiply by 4
-	add $s0, $a0, $zero		# store y offset
+	add $s0, $a1, $zero		# store y offset
 	sll $s0, $s0, 7			# multiply by 128
 	add $s0, $s0, $t0		# xy offset
 	lw $t2, ADDR_DSPL		# load base address
@@ -585,14 +592,19 @@ compute_loc:
 	addi $sp, $sp, 4
 	
 	jr $ra
-end_computer_loc:
+end_compute_loc:
+
+# checks if the player has died
+die:
+	li $v0, 10				# quit gracefully
+	syscall
+	jr $ra
+end_die:
+
 
 # QUIT FUNCTION
 key_q:
 	li $v0, 10                      # Quit gracefully
 	syscall
 end_key_q:
-	
-	
-	
-	
+
