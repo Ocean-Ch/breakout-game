@@ -16,27 +16,28 @@
 # Immutable Data
 ##############################################################################
 # The address of the bitmap display. Don't forget to connect it!
-ADDR_DSPL:
-    .word 0x10008000
+ADDR_DSPL:			.word 0x10008000
 # The address of the keyboard. Don't forget to connect it!
-ADDR_KBRD:
-    .word 0xffff0000
+ADDR_KBRD:			.word 0xffff0000
 # Constant color values
-WALL_CLR:
-	.word 0xc0c0c0
-RED:
-	.word 0xff0000
-GREEN:
-	.word 0x00ff00
-BLUE:
-	.word 0x0000ff
-BLACK:
-	.word 0x000000
-PADDLE_COLOUR:
-	.word 0x00ffff
+WALL_CLR:			.word 0xc0c0c0
+RED:				.word 0xff0000
+GREEN:				.word 0x00ff00
+BLUE:				.word 0x0000ff
+BLACK:				.word 0x000000
+PADDLE_COLOUR:		.word 0x00ffff
+BALL_COLOUR:		.word 0xff00ff
 # address offset between rows
-OFFSET:
-	.word 128
+OFFSET:				.word 128
+# INITIAL BALL POSITION AND VELOCITIES
+BALL_X:				.word 18
+BALL_Y:				.word 16
+BALL_VELX:			.word 1
+BALL_VELY:			.word -1
+# BALL SPEED
+BALL_MAX_TIME:		.word 20 # max value that timer resets to
+BALL_CURR:			.word 20 # current time
+
 
 ##############################################################################
 # Mutable Data
@@ -117,28 +118,31 @@ end_ceil:
 	jal draw_paddle
 	
 # draw ball
-	# initial location: (15, 18)
-	addi $a0, $zero, 18
-	addi $a1, $zero, 16
-	move $a2, $t0
+	# initial location: (18, 16)
+	lw $a0, BALL_X
+	lw $a1, BALL_Y
 	# create magenta colour as third arg
-	add $a3, $t1, $t3
+	lw $a3, BALL_COLOUR
 	jal draw_ball
 
 # FUNCTION: draw ball at given xy coords
 #	param:
 #		a0 - x offset
 #		a1 - y offset
-#		a2 - base address at (0, 0)
+#		DEPRECATED: a2 - base address at (0, 0)
 #		a3 - colour
 j end_ball		# skip function
 draw_ball:
+	addi $sp, $sp, -4
+	sw $ra, 0($sp)			# store ra on stack
 	addi $sp, $sp, -4
 	sw $s0, 0($sp)			# store $s0 on stack
 	addi $sp, $sp, -4
 	sw $t0, 0($sp)			# store $t0 on stack
 	addi $sp, $sp, -4
 	sw $t1, 0($sp)			# store $t1 on stack
+	addi $sp, $sp, -4		
+	sw $t2, 0($sp)			# store $t2 on stack
 	
 	# NOTE: a0 = x	a1 = y
 	add $t0, $a1, $zero		# store x offset
@@ -146,18 +150,26 @@ draw_ball:
 	add $s0, $a0, $zero		# store y offset
 	sll $s0, $s0, 7			# multiply by 128
 	add $s0, $s0, $t0		# xy offset
-	add $s0, $s0, $a2		# absolute address at xy
+	lw $t2, ADDR_DSPL		# load base address
+	add $s0, $s0, $t2		# absolute address at xy
 	
 	# draw ball at s0
 	sw $a3, 0($s0)
 	
 	# restore mem
+	lw $t2, 0($sp)			# restore $t2
+	addi $sp, $sp, 4
 	lw $t1, 0($sp)			# restore $t1
 	addi $sp, $sp, 4
 	lw $t0, 0($sp)			# restore $t0
 	addi $sp, $sp, 4
 	lw $s0, 0($sp)			# restore $s0
 	addi $sp, $sp, 4
+	lw $ra, 0($sp)			# restore $ra
+	addi $sp, $sp, 4
+	
+	# return
+	jr $ra
 end_ball:
 # END FUNCTION: draw_draw ball
 
@@ -348,6 +360,11 @@ game_loop:
     	jal keyboard_inputs			# evaluate keypress
     else_key:
     
+    # LAUNCH BALL
+    jal move_ball
+    li $v0, 32
+    li $a0, 10
+    syscall
     b game_loop
 
 
@@ -358,6 +375,7 @@ keyboard_inputs:
 	
 	beq $a0, 0x61, key_a			# key was a
 	beq $a0, 0x64, key_d			# key was d
+	beq $a0, 0x71, key_q			# key was q
 	
 	lw $ra 0($sp)					# restore return address
 	addi $sp, $sp, 4	
@@ -433,5 +451,148 @@ key_d:
 	# return
 	jr $ra
 end_key_d:
+
+move_ball:
+	# store ra into stack pointer
+	addi $sp, $sp, -4		# store ra on stack
+	sw $ra, 0($sp)
+	addi $sp, $sp, -4		# store t0 on stack
+	sw $t0, 0($sp)
+	addi $sp, $sp, -4		# store t1 on stack
+	sw $t1, 0($sp)
+	addi $sp, $sp, -4		# store t2 on stack
+	sw $t2, 0($sp)
+	addi $sp, $sp, -4		# store t3 on stack
+	sw $t3, 0($sp)
+	addi $sp, $sp, -4		# store t4 on stack
+	sw $t4, 0($sp)
+	addi $sp, $sp, -4		# store t5 on stack
+	sw $t5, 0($sp)
+	
+	
+	lw $t2, BALL_CURR
+	bnez $t2, NO_MOVE_BALL
+	# CALL DRAW BALL FUNCTION WITH BLACK AT CURR LOCATION
+	lw $a0, BALL_X
+	lw $a1, BALL_Y
+	lw $a3, BLACK
+	jal draw_ball
+	
+	# compute new location
+	lw $t0, BALL_VELX		# load velocities
+	lw $t1, BALL_VELY
+	add $a0, $t0, $a0		# a0 - new X offset
+	# a1 remains to be BALL_Y
+	jal compute_loc
+	
+	move $t3, $v0			# t3 - updated location x
+	lw $t4, 0($t3)			# FIND COLOUR AT ADDRESS T3
+	
+	beq $t4, $a3, NO_COLLIDE_X	# if colour == black, skip
+		li $t5, -1			
+		mult $t0, $t5		# multiply t0 by -1
+		mflo $t0			# t0 stores negative velocity
+		sw $t0, BALL_VELX	# update BALL_VELX
+	NO_COLLIDE_X:
+	lw $a0, BALL_X			# a0 - BALL_X value
+	add $a0, $t0, $a0		# a0 - add velocity to ball_x
+	sw $a0, BALL_X			# update BALL_X value
+	
+	# a1 = BALL_Y, t1 = BALL_VELY
+	add $a1, $a1, $t1		# a1 - new Y offset
+	jal compute_loc		# v0 - bitmap address
+	
+	move $t3, $v0			# t3 - updated location for x and y
+	lw $t4, 0($t3)			# FIND COLOUR AT ADDRESS T3
+	
+	# CHECK IF NEW Y VALUE COLLIDES
+	beq $t4, $a3, NO_COLLIDE_Y	# if colour == black, skip
+		lw $t1, BALL_VELY	# load Y velocity
+		li $t5, -1			
+		mult $t1, $t5		# multiply t1 by -1
+		mflo $t1			# t1 stores negative velocity
+		sw $t1, BALL_VELY	# update BALL_Y
+	NO_COLLIDE_Y:
+	lw $a1, BALL_Y			# a1 - BALL_Y value
+	add $a1, $t1, $a1		# a1 - new Y offset
+	sw $a1, BALL_Y			# update BALL_Y value
+	
+	# DRAW BALL AT NEW LOCATION
+	# a0 = BALL_X, a1 = BALL_Y
+	lw $a3, BALL_COLOUR		# load ball colour from mem
+	jal draw_ball			# draw ball at new location
+	
+	lw $t2, BALL_MAX_TIME	# reset BALL_CURR to BALL_TIME_MAX
+	sw $t2, BALL_CURR
+	NO_MOVE_BALL:
+	
+	addi $t2, $t2, -1		# decrement BALL_CURR by 1
+	sw $t2, BALL_CURR
+	
+	# restore mem
+	lw $t5, 0($sp)			# restore t5
+	addi $sp, $sp, 4
+	lw $t4, 0($sp)			# restore t4
+	addi $sp, $sp, 4
+	lw $t3, 0($sp)			# restore t3
+	addi $sp, $sp, 4
+	lw $t2, 0($sp)			# restore t2
+	addi $sp, $sp, 4
+	lw $t1, 0($sp)			# restore t1
+	addi $sp, $sp, 4
+	lw $t0, 0($sp)			# restore t0
+	addi $sp, $sp, 4
+	lw $ra, 0($sp)
+	addi $sp, $sp, 4		# restore ra 
+	
+	jr $ra
+	
+end_move_ball:
+
+# Computes the location on the bitmap display given xy coords
+#		a0 - x coord
+#		a1 - y coord
+#		v0 - bitmap location
+compute_loc:
+	addi $sp, $sp, -4
+	sw $s0, 0($sp)			# store $s0 on stack
+	addi $sp, $sp, -4
+	sw $t0, 0($sp)			# store $t0 on stack
+	addi $sp, $sp, -4
+	sw $t1, 0($sp)			# store $t1 on stack
+	addi $sp, $sp, -4		
+	sw $t2, 0($sp)			# store $t2 on stack
+	
+	# NOTE: a0 = x	a1 = y
+	add $t0, $a1, $zero		# store x offset
+	sll $t0, $t0, 2			# multiply by 4
+	add $s0, $a0, $zero		# store y offset
+	sll $s0, $s0, 7			# multiply by 128
+	add $s0, $s0, $t0		# xy offset
+	lw $t2, ADDR_DSPL		# load base address
+	add $s0, $s0, $t2		# absolute address at xy
+	
+	move $v0, $s0
+	
+	# restore mem
+	lw $t2, 0($sp)			# restore $t2
+	addi $sp, $sp, 4
+	lw $t1, 0($sp)			# restore $t1
+	addi $sp, $sp, 4
+	lw $t0, 0($sp)			# restore $t0
+	addi $sp, $sp, 4
+	lw $s0, 0($sp)			# restore $s0
+	addi $sp, $sp, 4
+	
+	jr $ra
+end_computer_loc:
+
+# QUIT FUNCTION
+key_q:
+	li $v0, 10                      # Quit gracefully
+	syscall
+end_key_q:
+	
+	
 	
 	
