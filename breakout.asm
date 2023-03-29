@@ -25,24 +25,24 @@ RED:				.word 0xff0000
 GREEN:				.word 0x00ff00
 BLUE:				.word 0x0000ff
 BLACK:				.word 0x000000
-PADDLE_COLOUR:		.word 0x00ffff
-BALL_COLOUR:		.word 0xff00ff
+
 # address offset between rows
 OFFSET:				.word 128
+##############################################################################
+# Mutable Data
+##############################################################################
+PADDLE_COLOUR:		.word 0x00ffff
+BALL_COLOUR:		.word 0xff00ff
+
 # INITIAL BALL POSITION AND VELOCITIES
 BALL_X:				.word 16
 BALL_Y:				.word 16
 BALL_VELX:			.word -1
 BALL_VELY:			.word 1
 # BALL SPEED
-BALL_MAX_TIME:		.word 10 # max value that timer resets to
-BALL_CURR:			.word 10 # current time
-
-
-##############################################################################
-# Mutable Data
-##############################################################################
-
+BALL_MAX_TIME:		.word 15 # max value that timer resets to
+BALL_CURR:			.word 15 # current time
+PITCH:              .word 59    # middle C
 ##############################################################################
 # Code
 ##############################################################################
@@ -473,6 +473,8 @@ move_ball:
 	sw $t4, 0($sp)
 	addi $sp, $sp, -4		# store t5 on stack
 	sw $t5, 0($sp)
+	addi $sp, $sp, -4      # store t6 on stack
+	sw $t6, 0($sp)
 	
 	
 	lw $t2, BALL_CURR
@@ -504,6 +506,9 @@ move_ball:
 		# a1 - current Y offset
 		move $a2, $t4		# pass colour into break_brick
 		jal break_brick		# a0, a1 already contains correct values to break brick
+		# NOTE: break_brick sets v0 to 0 or 1.
+		jal play_collision_sound
+		
 	NO_COLLIDE_X:
 	lw $a0, BALL_X			# a0 - BALL_X value
 	add $a0, $t0, $a0		# a0 - add velocity to ball_x
@@ -527,6 +532,8 @@ move_ball:
 		# a1 - new Y offset
 		move $a2, $t4		# pass in brick colour to break_brick
 		jal break_brick		# a0, a1 already contains correct values for break_brick
+		# break_brick set v0 to 0 or 1
+		jal play_collision_sound
 	NO_COLLIDE_Y:
 	lw $a1, BALL_Y			# a1 - BALL_Y value
 	add $a1, $t1, $a1		# a1 - new Y offset
@@ -552,6 +559,8 @@ move_ball:
 	sw $t2, BALL_CURR
 	
 	# restore mem
+	lw $t6, 0($sp)         # restore t6
+	addi $sp, $sp, 4
 	lw $t5, 0($sp)			# restore t5
 	addi $sp, $sp, 4
 	lw $t4, 0($sp)			# restore t4
@@ -651,6 +660,7 @@ end_cover_screen:
 #	a0 - x collision coord
 #	a1 - y collision coord
 #	a2 - brick colour
+#   RETURN: v0 - 1 if brick collision, 0 otherwise
 break_brick:
 	# STORE MEM ON STACK
 	addi $sp, $sp, -36		# allocate mem for 8 regs
@@ -663,6 +673,8 @@ break_brick:
 	sw $t2, 24($sp)			# store t2
 	sw $t3, 28($sp)			# store t3
 	sw $t4, 32($sp)			# store t4
+	
+	li $v0, 0              # flag: intially set to 0, indicating not brick collision
 	
 	# CHECK IF BRICK
 	# NOTE THAT IS (breakable) BRICK IFF 2 <= X <= 30, 5 <= Y <= 15
@@ -699,6 +711,8 @@ break_brick:
 	li $a2, 20					# set brick length to 5 (4 * 20)
 	jal draw_brick				# replaces brick with black brick
 	
+	li $v0, 1                  # flag set to 1 indicating brick collision
+	
 	not_brick:
 	
 	lw $ra, 0($sp)			# restore ra
@@ -715,6 +729,58 @@ break_brick:
 	# RETURN
 	jr $ra
 end_break_brick:
+
+# PLAYS COLLISION SOUND DEPENDING ON COLLISION TYPE
+# COLLISION TYPE GIVEN BY $V0 (accepts no other arguments)
+play_collision_sound:
+        # prepare for midi out syscall by storing a0, a1, a2, a3 on stack
+		addi $sp, $sp, -20            # make space for 4 register values
+		sw $a0, 0($sp)                # store a0
+		sw $a1, 4($sp)                # store a1
+		sw $a2, 8($sp)                # store a2
+		sw $a3, 12($sp)               # store a3
+		sw $t0, 16($sp)               # store t0
+		
+		# prep sound depending on collision type
+		beq $v0, 1, if_brick_collision
+		# paddle or wall collision
+
+		li $v0, 31                    # midi async syscall
+		lw $a0, PITCH                 # a0 - current pitch to play
+		move $t0, $a0
+		addi $t0, $t0, 2              # t0 - pitch incremented by 1 semitone
+		blt $t0, 90, no_pitch_reset
+		  li $t0, 60                  # reset pitch to 60
+		no_pitch_reset:
+		sw $t0, PITCH                 # store incremented pitch
+		li $a1, 50                    # duration in ms
+		# Intruments: 120-127 - sound effects
+		li $a2, 4                     # instrument 0-127
+		li $a3, 127                   # volume 0 - 127
+		
+		j end_if_brick_collision
+		if_brick_collision:
+		# brick collision
+		li $v0, 31                    # midi syscall
+		li $a0, 90                    # pitch 0-127
+		li $a1, 50                    # duration in ms
+		# Intruments: 120-127 - sound effects
+		li $a2, 4                   # instrument 0-127
+		li $a3, 127                   # volume 0 - 127
+		end_if_brick_collision:
+		
+		syscall
+		
+		lw $a0, 0($sp)                # restore a0
+		lw $a1, 4($sp)                # restore a1
+		lw $a2, 8($sp)                # restore a2
+		lw $a3, 12($sp)               # restore a3
+		lw $t0, 16($sp)               # restore t0
+		addi $sp, $sp, 20             # restore stack pt
+		
+		# RETURN
+		jr $ra
+end_play_collision_sound:
 
 # checks if the player has died
 die:
