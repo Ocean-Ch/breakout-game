@@ -342,7 +342,6 @@ end_wall_loop:
 end_wall:
 # END FUNCTION: draw_wall
 
-
 game_loop:
 	# 1a. Check if key has been pressed
     # 1b. Check which key has been pressed
@@ -365,6 +364,7 @@ game_loop:
     
     # LAUNCH BALL
     jal move_ball
+    # SLEEP FOR 10 ms
     li $v0, 32
     li $a0, 10
     syscall
@@ -781,6 +781,10 @@ play_collision_sound:
 		# RETURN
 		jr $ra
 end_play_collision_sound:
+
+pause:
+    jr $ra
+end_pause:
 
 # checks if the player has died
 die:
