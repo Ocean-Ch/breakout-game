@@ -342,6 +342,8 @@ end_wall_loop:
 end_wall:
 # END FUNCTION: draw_wall
 
+jal pause
+
 game_loop:
 	# 1a. Check if key has been pressed
     # 1b. Check which key has been pressed
@@ -379,6 +381,7 @@ keyboard_inputs:
 	beq $a0, 0x61, key_a			# key was a
 	beq $a0, 0x64, key_d			# key was d
 	beq $a0, 0x71, key_q			# key was q
+	beq $a0, 0x70, pause           # key was p
 	
 	lw $ra 0($sp)					# restore return address
 	addi $sp, $sp, 4	
@@ -475,7 +478,6 @@ move_ball:
 	sw $t5, 0($sp)
 	addi $sp, $sp, -4      # store t6 on stack
 	sw $t6, 0($sp)
-	
 	
 	lw $t2, BALL_CURR
 	bnez $t2, NO_MOVE_BALL
@@ -783,7 +785,38 @@ play_collision_sound:
 end_play_collision_sound:
 
 pause:
-    jr $ra
+    addi $sp, $sp, -16              
+    sw $t4, 0($sp)                      # store t4
+    sw $t8, 4($sp)                      # store t8         
+    sw $a0, 8($sp)                      # store a0
+    sw $v0, 12($sp)                     # store v0
+    
+    pause_loop:
+    # (1) Check if keypressed
+    lw $t4, ADDR_KBRD               # $t4 = base address for keyboard
+    lw $t8, 0($t4)                  # Load first word from keyboard (1 if keypressed)
+    bne $t8, 1, no_keypress			# check if keypressed. Jump otherwise
+    	lw $t8, 4($t4)				# t8 - keycode
+    	bne $t8, 0x70, not_unpause     # check if user pressed space
+    	   lw $t4, 0($sp)                  # restore t4
+            lw $t8, 4($sp)                  # restore t8
+            lw $a0, 8($sp)                  # restore a0
+            lw $v0, 12($sp)                 # restore v0
+            addi $sp, $sp, 16
+    	   jr $ra                  # RETURN
+    	not_unpause:
+    no_keypress:
+    # sleep for 10 ms
+    li $v0, 32
+    li $a0, 10
+    syscall
+    j pause_loop
+    
+    lw $t4, 0($sp)                  # restore t4
+    lw $t8, 4($sp)                  # restore t8
+    lw $a0, 8($sp)                  # restore a0
+    lw $v0, 12($sp)                 # restore v0
+    addi $sp, $sp, 16
 end_pause:
 
 # checks if the player has died
