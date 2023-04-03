@@ -194,7 +194,7 @@ draw_brick:
 	addi $sp, $sp, -4
 	sw $t1, 0($sp)			# store $t1 on stack
 	
-	# start drawing brick from left to right
+	# start drawing brick from right to left
 	db_loop:
 	beq $s0, $a0, end_db_loop	# while s0 != a0
 		sw $a1, 0($s0)			# draw pixel with colour a1 to s0
@@ -213,6 +213,67 @@ draw_brick:
 	# return
 	jr $ra
 end_brick:
+
+# FUNCTION: draw a single (BROKEN) brick (size 5)
+# param: 
+#		$a0 - left most location
+#		$a1 - colour of brick
+#		$a2 - length of brick
+j end_draw_broken_brick
+draw_broken_brick:
+	# allocate mem on stack
+	addi $sp, $sp, -4
+	sw $s0, 0($sp)             # store $s0 on top of stack
+	addi $sp, $sp, -4
+	sw $t1, 0($sp)             # store $t1 on stack
+	addi $sp, $sp, -4
+	sw $t2, 0($sp)             # store $t2 on stack
+	
+	lw $t2, BLACK              # t2 - colour black
+	add $s0, $a0, $a2          # s0 = last pixel of the brick
+	
+	# start drawing brick columns from right to left
+	
+	# col 5: top black, bottom filled
+	sw $t2, 0($s0)
+	addi $t1, $s0, 128
+	sw $a1, 0($t1)
+	
+	addi $s0, $s0, -4
+	# col 4: both filled
+	sw $a1, 0($s0)
+	addi $t1, $s0, 128
+	sw $t2, 0($t1)
+	
+	addi $s0, $s0, -4
+	# col 3: top filled bottom black
+	sw $t2, 0($s0)
+	addi $t1, $s0, 128
+	sw $a1, 0($t1)
+	
+	addi $s0, $s0, -4
+	# col 2: both filled
+	sw $a1, 0($s0)
+	addi $t1, $s0, 128
+	sw $t2, 0($t1)
+	
+	addi $s0, $s0, -4
+	# col 1: top black, bottom filled
+	sw $t2, 0($s0)
+	addi $t1, $s0, 128
+	sw $a1, 0($t1)
+	
+	# restore register values
+	lw $t2, 0($sp)             # restore t2
+	addi $sp, $sp, 4
+	lw $t1, 0($sp)             # restore t1
+	addi $sp, $sp, 4
+	lw $s0, 0($sp)             # restore s0
+	addi $sp, $sp, 4
+	
+	# return
+	jr $ra
+end_draw_broken_brick:
 
 # FUNCTION: draw a single paddle (save paddle location to $s0)
 # param: 
@@ -370,9 +431,9 @@ game_loop:
     
     # LAUNCH BALL
     jal move_ball
-    # SLEEP FOR 10 ms
+    # SLEEP FOR 7 ms
     li $v0, 32
-    li $a0, 10
+    li $a0, 7
     syscall
     b game_loop
 
@@ -774,6 +835,7 @@ break_brick:
 	blt $a1, 5, not_brick		# branch if a1 < 5
 	bgt $a1, 15, not_brick		# branch if a1 > 15
 	
+	# ======================== DETERMINE WHICH BRICK =================================
 	# NOTE: x diff between bricks is 6, y diff between bricks is 3
 	addi $t0, $a0, -2			# calibrate coordinates (bricks start on col 2)
 	addi $t1, $a1, -5			# bricks start on row 5
@@ -797,10 +859,21 @@ break_brick:
 	jal compute_loc				# v0 = abs address of top-left px of brick
 
 	move $a0, $v0				# prep args to draw brick (a0 - abs address of starting point)
-	# TEST
+	# CHECK IF BRICK ALREADY BROKEN ONCE
 	lw $a1, BLACK				# load in black
+	lw $t4, 4($a0)             # t4 - colour at a0 (i have no idea why its shifted by 4 though)
+	# ================== CASE 1: BRICK NOT YET BROKEN ===============================
+	beq $t4, $a1, brick_broken         # don't skip if top left px not black
+	   move $a1, $a2           # load actual brick colour
+	   li $a2, 20              # load in brick size (5)
+	   jal draw_broken_brick   # draw a broken brick starting at a0
+	   li $v0, 1               # set to 1 to indicate brick collision (for sound)
+	   j not_brick             # skip next part
+	brick_broken:
+	# ================== CASE 2: BRICK ALREADY BROKEN ONCE ===============================
+	# note: a0 - left most loc, a1 - BLACK, it remains to load in size (a2)
 	li $a2, 20					# set brick length to 5 (4 * 20)
-	jal draw_brick				# replaces brick with black brick
+	jal draw_brick				# draw black brick starting at a0
 	
 	li $v0, 1                  # flag set to 1 indicating brick collision
 	
