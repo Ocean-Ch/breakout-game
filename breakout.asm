@@ -578,8 +578,6 @@ move_ball:
 	lw $t1, BALL_VELY      # t1 - ACTUAL y velocity
 	# CHECK IF NEW Y VALUE COLLIDES
 	beq $t4, $a3, NO_COLLIDE_Y     	# if colour == black, skip
-        lw $a1, BALL_Y
-		lw $t1, BALL_VELY	        # load Y velocity
 		li $t5, -1			
 		mult $t1, $t5		# multiply t1 by -1
 		mflo $t1			# t1 stores negative velocity
@@ -914,6 +912,8 @@ check_paddle_collisions:
             # left most location on paddle (go left)
             li $t5, -2
             sw $t5, BALL_VELX
+            li $t5, -1
+            sw $t5, BALL_VELY
             j no_paddle_collision
         paddle_pos1:
             jal compute_direction
@@ -934,6 +934,8 @@ check_paddle_collisions:
             # go right
             li $t5, 2
             sw $t5, BALL_VELX
+            li $t5, -1
+            sw $t5, BALL_VELY
 	no_paddle_collision:
 	
 	lw $ra, 0($sp)			# restore ra
