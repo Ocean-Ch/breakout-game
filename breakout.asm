@@ -49,7 +49,11 @@ LIVES:              .word 2
 BALL_MAX_TIME:		.word 12 # max value that timer resets to
 BALL_CURR:			.word 15 # current time
 PITCH:              .word 59    # middle C
+
+# HEART
 HEART_LOC:          .word 0
+HEART_MAX_TIME:     .word 130
+HEART_CURR:         .word 130
 
 ##############################################################################
 # Code
@@ -185,18 +189,23 @@ end_ceil:
     li $a1, 43
     jal compute_loc
     move $a0, $v0           # a0 - absolute address of (5, 43)
+    lw $a1, HEART_CLR
     jal draw_heart
     
     li $a0, 14
+    li $a1, 43
     jal compute_loc         # a0 - absolute address of (14, 43)
     move $a0, $v0
+    lw $a1, HEART_CLR
     jal draw_heart
     
     li $a0, 23
+    li $a1, 43
     jal compute_loc         # a0 - absolute address of (23, 43)
     move $a0, $v0
+    lw $a1, HEART_CLR
     jal draw_heart
-    sw $a0, HEART_LOC
+    sw $v0, HEART_LOC       # store this as first heart location
 
 # ================================ FUNCTIONS ===================================
 
@@ -376,6 +385,7 @@ draw_unbreakable:
 end_unbreakable:
 
 # draw a heart at a0
+# a1 - colour
 j end_draw_heart
 draw_heart:
     addi $sp, $sp, -16
@@ -384,7 +394,7 @@ draw_heart:
     sw $t2, 8($sp)          # store t2
     
     move $t2, $a0           # now t0 stores starting address (top left)
-    lw $t0, HEART_CLR
+    move $t0, $a1           # load in the desired colour
     lw $t1, BLACK
     # we start drawing first col
     sw $t0, 128($t2)        # row 2
@@ -593,7 +603,7 @@ game_loop:
     	lw $a0, 4($t4)				# pass keycode as arg
     	jal keyboard_inputs			# evaluate keypress
     else_key:
-    
+    jal flash_heart
     # LAUNCH BALL
     jal move_ball
     # SLEEP FOR 7 ms
@@ -1240,6 +1250,42 @@ compute_direction:
     jr $ra
 end_compute_direction:
 
+flash_heart:
+    addi $sp, $sp, -20
+    sw $t0, 0($sp)              # store t0
+    sw $t1, 4($sp)              # store t1
+    sw $a0, 8($sp)              # store a0
+    sw $a1, 12($sp)             # store a1
+    sw $ra, 16($sp)
+    
+    lw $t0, HEART_CURR
+    lw $a0, HEART_LOC               # enter current heart location
+    bgt $t0, 50, fill_heart
+        lw $a1, BLACK
+        jal draw_heart              # draws black heart if under 100 ms
+        bgtz $t0, no_heart_reset
+            lw $t0, HEART_MAX_TIME
+            sw $t0, HEART_CURR      # reset heart_curr
+        no_heart_reset:
+        j done_heart 
+    fill_heart:
+    # so heart_curr > 100
+        lw $a1, HEART_CLR
+        jal draw_heart              # draw coloured heart at a0
+    done_heart:
+    addi $t0, $t0, -1               # decrement heart_curr
+    sw $t0, HEART_CURR
+    
+    lw $t0, 0($sp)              # restore t0
+    lw $t1, 4($sp)              # restore t1
+    lw $a0, 8($sp)              # restore a0
+    lw $a1, 12($sp)             # restore a1
+    lw $ra, 16($sp)
+    addi $sp, $sp, 20
+    # RETURN
+    jr $ra
+end_flash_heart:
+
 pause:
     addi $sp, $sp, -16              
     sw $t4, 0($sp)                      # store t4
@@ -1278,12 +1324,15 @@ end_pause:
 # checks if the player has any lives left. 
 # Respawn and decrement life if possible. Die otherwise
 die:
-    addi $sp, $sp, -8
+    addi $sp, $sp, -16
     sw $t0, 0($sp)                  # store t0
     sw $a0, 4($sp)                  # store a0
+    sw $ra, 8($sp)                  # store ra
+    sw $a1, 12($sp)                 # store a1
     
     lw $a0, HEART_LOC
-    jal draw_black_box
+    lw $a1, BLACK
+    jal draw_heart
     addi $a0, $a0, -36              # decrement by distance between hearts
     sw $a0, HEART_LOC               # update new heart location
     
@@ -1307,7 +1356,9 @@ die:
 	   
 	lw $t0, 0($sp)             # restore t0     
 	lw $a0, 4($sp)            # restore a0
-	addi $sp, $sp, 8          
+	lw $ra, 8($sp)             # restore ra
+	lw $a1, 12($sp)            # restore a1
+	addi $sp, $sp, 16         
 	# RETURN
     jr $ra
 end_die:
