@@ -7,8 +7,11 @@
 # - Unit width in pixels:       8
 # - Unit height in pixels:      8
 # - Display width in pixels:    256
-# - Display height in pixels:   384
+# - Display height in pixels:   384 (Saturn)
+# - Display height in pixels:   512 (Mars)
 # - Base Address for Display:   0x10008000 ($gp)
+
+# The game will start paused. Press [p] to unpause the game.
 ##############################################################################
 
     .data
