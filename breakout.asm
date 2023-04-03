@@ -31,18 +31,22 @@ OFFSET:				.word 128
 ##############################################################################
 # Mutable Data
 ##############################################################################
+
+# PADDLE INFO
 PADDLE_COLOUR:		.word 0x00ffff
+PADDLE_LOC:         .word 14
 BALL_COLOUR:		.word 0xff00ff
 
 # INITIAL BALL POSITION AND VELOCITIES
 BALL_X:				.word 16
 BALL_Y:				.word 16
-BALL_VELX:			.word -1
+BALL_VELX:			.word 0
 BALL_VELY:			.word 1
 # BALL SPEED
 BALL_MAX_TIME:		.word 15 # max value that timer resets to
 BALL_CURR:			.word 15 # current time
 PITCH:              .word 59    # middle C
+
 ##############################################################################
 # Code
 ##############################################################################
@@ -397,6 +401,8 @@ key_a:
 	sw $t0, 0($sp)
 	addi $sp, $sp, -4				# store $t1 on stack
 	sw $t1, 0($sp)
+	addi $sp, $sp, -4				# store $t2 on stack
+	sw $t2, 0($sp)
 	
 	div $t1, $s0, 128				# t1 = s0 // 128 (integer division)
 	mul $t0, $t1, 128				# t0 = t1 * 128
@@ -410,9 +416,14 @@ key_a:
 		addi $a0, $a0, -4			# move paddle left
 		lw $a1, PADDLE_COLOUR		# change back to OG colour				
 		jal draw_paddle				# draw new paddle
+		lw $t2, PADDLE_LOC
+		addi $t2, $t2, -1             # move paddle loc one to left
+		sw $t2, PADDLE_LOC
 	hit_left:
 	
 	# restore mem
+	lw $t2, 0($sp)					# restore $t2
+	addi $sp, $sp, 4
 	lw $t1, 0($sp)					# restore $t1
 	addi $sp, $sp, 4
 	lw $t0, 0($sp)					# restore $t0
@@ -432,6 +443,8 @@ key_d:
 	sw $t0, 0($sp)
 	addi $sp, $sp, -4				# store $t1 on stack
 	sw $t1, 0($sp)
+	addi $sp, $sp, -4				# store $t2 on stack
+	sw $t2, 0($sp)
 	
 	div $t1, $s0, 128				# t1 = s0 // 128 (integer division)
 	mul $t0, $t1, 128				# t0 = t1 * 128
@@ -445,9 +458,14 @@ key_d:
 		addi $a0, $a0, 4			# move paddle left
 		lw $a1, PADDLE_COLOUR		# change back to OG colour				
 		jal draw_paddle				# draw new paddle
+		lw $t2, PADDLE_LOC
+		addi $t2, $t2, 1              # move paddle loc one to left
+		sw $t2, PADDLE_LOC
 	hit_right:
 	
 	# restore mem
+	lw $t2, 0($sp)					# restore $t2
+	addi $sp, $sp, 4
 	lw $t1, 0($sp)					# restore $t1
 	addi $sp, $sp, 4
 	lw $t0, 0($sp)					# restore $t0
@@ -486,21 +504,25 @@ move_ball:
 	lw $a1, BALL_Y
 	lw $a3, BLACK
 	jal draw_ball
+	li $t6, 0              # flag. Add only dir if flag is 1
 	
-	# compute new location
-	lw $t0, BALL_VELX		# load velocities
-	lw $t1, BALL_VELY
+# ======================== CHECK COLLISIONS BASED ON DIRECTION ==============================
+	jal compute_direction  # find absolute direction (no magnitude)
+	move $t0, $v0          # t0 - x dir
+	move $t1, $v1          # t1 - y dir
 	
-	# CHECK COLLISIONS
-	add $a0, $t0, $a0		# a0 - new X offset
+	add $a0, $t0, $a0		# a0 - new X offset (direction)
 	# a1 remains to be BALL_Y
 	jal compute_loc
 	
 	move $t3, $v0			# t3 - updated location x
 	lw $t4, 0($t3)			# FIND COLOUR AT ADDRESS T3
 	
+	lw $t0, BALL_VELX      # load x velocity back into t0
+	
+	# CASE 1: ball immediately beside collidable
 	beq $t4, $a3, NO_COLLIDE_X	# if colour == black, skip
-		li $t5, -1			
+		li $t5, -1
 		mult $t0, $t5		# multiply t0 by -1
 		mflo $t0			# t0 stores negative velocity
 		sw $t0, BALL_VELX	# update BALL_VELX
@@ -510,33 +532,97 @@ move_ball:
 		jal break_brick		# a0, a1 already contains correct values to break brick
 		# NOTE: break_brick sets v0 to 0 or 1.
 		jal play_collision_sound
-		
+		# JUMP OUT
+		j end_x_collision
 	NO_COLLIDE_X:
-	lw $a0, BALL_X			# a0 - BALL_X value
+	# ================================ CHECK COLLISIONS BASED ON VELOCITY ===================================
+	# reset, a0 value
+	lw $a0, BALL_X             # a0 - BALL_X value
+	# a1 remains to be BALL_Y
+	# CHECK COLLISIONS
+	add $a0, $t0, $a0		# a0 - new X offset (direction)
+	# a1 remains to be BALL_Y
+	jal compute_loc
+	
+	move $t3, $v0			# t3 - updated location x
+	lw $t4, 0($t3)			# FIND COLOUR AT ADDRESS T3
+	
+	# CASE 2: ball will collide next clock cycle based on velocity
+	beq $t4, $a3, NO_COLLIDE_X_VEL	# if colour == black, skip
+		li $t5, -1
+		# t0 now stores x velocity
+		mult $t0, $t5		# multiply t0 by -1
+		mflo $t0			# t0 stores negative velocity
+		sw $t0, BALL_VELX	# update BALL_VELX
+		# a0 - new X offset
+		# a1 - current Y offset
+		move $a2, $t4		# pass colour into break_brick
+		jal break_brick		# a0, a1 already contains correct values to break brick
+		# NOTE: break_brick sets v0 to 0 or 1.
+		jal play_collision_sound
+	NO_COLLIDE_X_VEL:
+	end_x_collision:
+	
+	lw $a0, BALL_X
 	add $a0, $t0, $a0		# a0 - add velocity to ball_x
 	sw $a0, BALL_X			# update BALL_X value
 	
-	# a1 = BALL_Y, t1 = BALL_VELY
-	add $a1, $a1, $t1		# a1 - new Y offset
-	jal compute_loc		# v0 - bitmap address
+# ====================== CHECK Y COLLISIONS BASED ON DIRECTION =============================
+	# t1 currently stores dir
+	add $a1, $a1, $t1		# a1 - new Y offset (direction)
+	jal compute_loc	       	# v0 - bitmap address
 	
 	move $t3, $v0			# t3 - updated location for x and y
 	lw $t4, 0($t3)			# FIND COLOUR AT ADDRESS T3
 	
+	lw $t1, BALL_VELY      # t1 - ACTUAL y velocity
 	# CHECK IF NEW Y VALUE COLLIDES
-	beq $t4, $a3, NO_COLLIDE_Y	# if colour == black, skip
-		lw $t1, BALL_VELY	# load Y velocity
+	beq $t4, $a3, NO_COLLIDE_Y     	# if colour == black, skip
+        lw $a1, BALL_Y
+		lw $t1, BALL_VELY	        # load Y velocity
 		li $t5, -1			
 		mult $t1, $t5		# multiply t1 by -1
 		mflo $t1			# t1 stores negative velocity
-		sw $t1, BALL_VELY	# update BALL_Y
+		sw $t1, BALL_VELY	# update BALL_velY
 		# a0 - new X offset
 		# a1 - new Y offset
 		move $a2, $t4		# pass in brick colour to break_brick
 		jal break_brick		# a0, a1 already contains correct values for break_brick
 		# break_brick set v0 to 0 or 1
 		jal play_collision_sound
+		li $t6, 1             # set flag for y collsion to 1
+		# JUMP OUT
+		j end_y_collision
 	NO_COLLIDE_Y:
+	
+	# ================================ CHECK Y COLLISIONS BASED ON VELOCITY ===================================
+	# reset, a1 value
+	lw $a1, BALL_Y             # a0 - BALL_X value
+	# a0 is new ball_x value
+	# CHECK COLLISIONS
+	add $a1, $t1, $a1		# a1 - new X offset (velocity)
+	jal compute_loc
+	
+	move $t3, $v0			# t3 - updated location y
+	lw $t4, 0($t3)			# FIND COLOUR AT ADDRESS T3
+	
+	# CASE 2: ball will collide next clock cycle based on velocity
+	beq $t4, $a3, NO_COLLIDE_Y_VEL	# if colour == black, skip
+		li $t5, -1
+		# t0 now stores x velocity
+		mult $t1, $t5		# multiply t0 by -1
+		mflo $t1			# t0 stores negative velocity
+		sw $t1, BALL_VELY	# update BALL_VELX
+		# a0 - new X offset
+		# a1 - current Y offset
+		move $a2, $t4		# pass colour into break_brick
+		jal break_brick		# a0, a1 already contains correct values to break brick
+		# NOTE: break_brick sets v0 to 0 or 1.
+		jal play_collision_sound
+		li $t6, 1             # set flag for y collision to 1
+	NO_COLLIDE_Y_VEL:
+	end_y_collision:
+	
 	lw $a1, BALL_Y			# a1 - BALL_Y value
 	add $a1, $t1, $a1		# a1 - new Y offset
 	sw $a1, BALL_Y			# update BALL_Y value
@@ -552,6 +638,11 @@ move_ball:
 	# a0 = BALL_X, a1 = BALL_Y
 	lw $a3, BALL_COLOUR		# load ball colour from mem
 	jal draw_ball			# draw ball at new location
+	
+	bne $t6, 1, no_y_collide
+        move $a0, $t4       # recall that t4 stores the colour of collided object
+        jal check_paddle_collisions
+	no_y_collide:
 	
 	lw $t2, BALL_MAX_TIME	# reset BALL_CURR to BALL_TIME_MAX
 	sw $t2, BALL_CURR
@@ -783,6 +874,125 @@ play_collision_sound:
 		# RETURN
 		jr $ra
 end_play_collision_sound:
+
+# CHECK PADDLE COLLISIONS, AND DETERMINE NEXT XY VEL
+# a0 - colour of collided object
+# PRECONDITION: y collision has occurred
+check_paddle_collisions:
+    # STORE MEM ON STACK
+	addi $sp, $sp, -36		# allocate mem for 8 regs
+	sw $ra, 0($sp)			# store ra
+	sw $a0, 4($sp)			# store a0
+	sw $t5, 8($sp)			# store a1
+	sw $t6, 12($sp)			# store a2
+	sw $t0, 16($sp)			# store t0
+	sw $t1, 20($sp)			# store t1
+	sw $t2, 24($sp)			# store t2
+	sw $t3, 28($sp)			# store t3
+	sw $t4, 32($sp)			# store t4
+	
+	lw $t0, BALL_X         
+	lw $t1, BALL_VELX
+	li $t4, -1
+	mult $t1, $t4
+	mflo $t1               # t1 - negative x vel
+	add $t4, $t0, $t1      # t4 - previous x position
+	lw $t2, PADDLE_COLOUR  # t2 - paddle colour
+	lw $t3, PADDLE_LOC     # t3 - left most location on paddle
+	
+	bne $a0, $t2, no_paddle_collision      # skip if collision wasn't between paddle
+    	beq $t4, $t3, paddle_pos0
+    	addi $t3, $t3, 1
+    	beq $t4, $t3, paddle_pos1
+    	addi $t3, $t3, 1
+    	beq $t4, $t3, paddle_pos2
+    	addi $t3, $t3, 1
+    	beq $t4, $t3, paddle_pos3
+    	addi $t3, $t3, 1
+    	beq $t4, $t3, paddle_pos4
+        paddle_pos0:
+            # left most location on paddle (go left)
+            li $t5, -2
+            sw $t5, BALL_VELX
+            j no_paddle_collision
+        paddle_pos1:
+            jal compute_direction
+            sw $v0, BALL_VELX
+            sw $v1, BALL_VELY
+            j no_paddle_collision
+        paddle_pos2:
+            # middle (launch straight up)
+            li $t5, 0
+            sw $t5, BALL_VELX
+            j no_paddle_collision
+        paddle_pos3:
+            jal compute_direction
+            sw $v0, BALL_VELX
+            sw $v1, BALL_VELY
+            j no_paddle_collision
+        paddle_pos4:
+            # go right
+            li $t5, 2
+            sw $t5, BALL_VELX
+	no_paddle_collision:
+	
+	lw $ra, 0($sp)			# restore ra
+	lw $a0, 4($sp)			# restore a0
+	lw $t5, 8($sp)			# restore a1
+	lw $t6, 12($sp)			# restore a2
+	lw $t0, 16($sp)			# store t0
+	lw $t1, 20($sp)			# store t1
+	lw $t2, 24($sp)			# restore t2
+	lw $t3, 28($sp)			# restore t3
+	lw $t4, 32($sp)			# restore t4
+	addi $sp, $sp, 36		# restore stack pt
+	# RETURN
+	jr $ra
+end_check_paddle_collisions:
+
+# LOAD VELOCITIES FROM MEMORY, COMPUTE DIRECTION
+# NO ARGUMENTS
+# RETURN:
+#       v0 - x dir
+#       v1 - y dir 
+compute_direction:
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)                      # store t0
+    sw $t1, 4($sp)                      # store t1
+    
+    lw $t0, BALL_VELX		# load velocities
+	lw $t1, BALL_VELY
+	
+	# COMPUTE X DIRECTION
+	bne $t0, $zero, xpos_not_zero       # if t0 == 0
+	   j x_dir_done                    # no need to do anything
+	xpos_not_zero:
+	bgtz $t0, xpos_vel                  # if t0 < 0
+	   li $t0, -1                      # load t0 = -1
+	   j x_dir_done
+	xpos_vel:
+	li $t0, 1                          # otherwise, t0 > 0, so load t0 = 1
+	x_dir_done:
+	# COMPUTER Y DIRECTION
+	bne $t1, $zero, ypos_not_zero       # if t1 == 0
+	   j y_dir_done                    # no need to do anything
+	ypos_not_zero:
+	bgtz $t1, ypos_vel                  # if t1 < 0
+	   li $t1, -1                      # load t1 = -1
+	   j y_dir_done
+	ypos_vel:
+	li $t1, 1                          # otherwise, t1 > 0, so load t1 = 1
+	y_dir_done:
+	
+	move $v0, $t0                      # set v0 = x dir
+	move $v1, $t1                      # set v1 = y dir
+    
+    lw $t0, 0($sp)                      # restore t0
+    lw $t1, 4($sp)                      # restore t1
+    addi $sp, $sp, 8
+    # RETURN
+    jr $ra
+end_compute_direction:
 
 pause:
     addi $sp, $sp, -16              
