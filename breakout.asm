@@ -7,7 +7,7 @@
 # - Unit width in pixels:       8
 # - Unit height in pixels:      8
 # - Display width in pixels:    256
-# - Display height in pixels:   256
+# - Display height in pixels:   384
 # - Base Address for Display:   0x10008000 ($gp)
 ##############################################################################
 
@@ -26,6 +26,7 @@ RED:				.word 0xff0000
 GREEN:				.word 0x00ff00
 BLUE:				.word 0x0000ff
 BLACK:				.word 0x000000
+HEART_CLR:          .word 0xF67DC4
 
 # address offset between rows
 OFFSET:				.word 128
@@ -40,13 +41,15 @@ BALL_COLOUR:		.word 0xff00ff
 
 # INITIAL BALL POSITION AND VELOCITIES
 BALL_X:				.word 16
-BALL_Y:				.word 17
-BALL_VELX:			.word 0
+BALL_Y:				.word 20
+BALL_VELX:			.word 1
 BALL_VELY:			.word 1
+LIVES:              .word 2
 # BALL SPEED
-BALL_MAX_TIME:		.word 15 # max value that timer resets to
+BALL_MAX_TIME:		.word 12 # max value that timer resets to
 BALL_CURR:			.word 15 # current time
 PITCH:              .word 59    # middle C
+HEART_LOC:          .word 0
 
 ##############################################################################
 # Code
@@ -121,10 +124,10 @@ end_ceil:
 # draw paddle (1 px above floor)
 	add $a2, $zero, 20		# paddle size = 20 (5 * 4)
 	add $a1, $t2, $t3		# cyan = green + blue (paddle colour)
-	addi $a0, $zero, 30		# set $a0 to 30
+	addi $a0, $zero, 40		# set $a0 to 40
 	sll $a0, $a0, 7			# multiply by 128 (row 30 offset)
 	add $a0, $a0, $t0		# $a0 = address of start of row 30
-	addi $a0, $a0, 52		# $a0 = row 30, col 13
+	addi $a0, $a0, 52		# $a0 = row 40, col 13
 	jal draw_paddle
 	
 # draw ball
@@ -153,29 +156,47 @@ end_ceil:
     lw $a1, BLOCK_CLR       # load block colour
     # let size remain the same (7)
     jal draw_unbreakable
-    # ============================= DRAW ROW 16 BLOCK ==========================
+    # ============================= DRAW ROW 18 BLOCK ==========================
     li $a0, 10
-    li $a1, 16
+    li $a1, 18
     jal compute_loc
     move $a0, $v0           # a0 - absolute address of (11, 16)
     lw $a1, BLOCK_CLR       # load block colour
     li $a2, 44              # size 13 (11 * 4)
     jal draw_unbreakable
-    # ============================= DRAW ROW 21 BLOCKS =======================
+    # ============================= DRAW ROW 24 BLOCKS =======================
     li $a0, 1
-    li $a1, 21
+    li $a1, 24
     jal compute_loc         # absolute address of (2, 21)
     move $a0, $v0
     lw $a1, BLOCK_CLR       # load block colour
     li $a2, 8              # size 2 (2 * 4)
     jal draw_unbreakable
     li $a0, 28
-    li $a1, 20
+    li $a1, 24
     jal compute_loc
     move $a0, $v0           # a0 -0 absolute address of (29, 21)
     lw $a1, BLOCK_CLR       # load block colour
     # a2 remains to be 8 (size 2)
     jal draw_unbreakable
+    
+# draw lives
+    li $a0, 5
+    li $a1, 43
+    jal compute_loc
+    move $a0, $v0           # a0 - absolute address of (5, 43)
+    jal draw_heart
+    
+    li $a0, 14
+    jal compute_loc         # a0 - absolute address of (14, 43)
+    move $a0, $v0
+    jal draw_heart
+    
+    li $a0, 23
+    jal compute_loc         # a0 - absolute address of (23, 43)
+    move $a0, $v0
+    jal draw_heart
+    sw $a0, HEART_LOC
 
 # ================================ FUNCTIONS ===================================
 
@@ -354,6 +375,71 @@ draw_unbreakable:
 	jr $ra
 end_unbreakable:
 
+# draw a heart at a0
+j end_draw_heart
+draw_heart:
+    addi $sp, $sp, -16
+    sw $t0, 0($sp)          # store t0
+    sw $t1, 4($sp)          # store t1
+    sw $t2, 8($sp)          # store t2
+    
+    move $t2, $a0           # now t0 stores starting address (top left)
+    lw $t0, HEART_CLR
+    lw $t1, BLACK
+    # we start drawing first col
+    sw $t0, 128($t2)        # row 2
+    # 2nd col
+    addi $t2, $t2, 4        # move right
+    sw $t0, 0($t2)          # draw row 1  
+    sw $t0, 128($t2)        # row 2
+    sw $t0, 256($t2)        # row 3
+    # 3rd col
+    addi $t2, $t2, 4        # move right
+    sw $t0, 128($t2)        # row 2
+    sw $t0, 256($t2)        # row 3
+    sw $t0, 384($t2)        # row 4
+    # 4th col
+    addi $t2, $t2, 4        # move right
+    sw $t0, 0($t2)          # draw row 1  
+    sw $t0, 128($t2)        # row 2
+    sw $t0, 256($t2)        # row 3
+    # 5th row
+    addi $t2, $t2, 4
+    sw $t0, 128($t2)        # row 2
+    
+    lw $t0, 0($sp)          # restore t0
+    lw $t1, 4($sp)          # restore t1
+    lw $t2, 8($sp)          # restore t2
+    addi $sp, $sp, 16
+    
+    # RETURN
+    jr $ra
+end_draw_heart:
+
+# draws a 5 x 4 black box (for displaying heart)
+# a0 - top left location
+j end_draw_black_box
+draw_black_box:
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)                  # store t0
+    sw $t1, 4($sp)                  # store t1
+    
+    addi $t0, $a0, 20
+    lw $t1, BLACK
+    bne $a0, $t0, end_bb_loop       # run while a0 != t0
+        sw $t1, 0($t0)              # black 1 px under
+        sw $t1, 128($t0)            # black 2 px under
+        sw $t1, 256($t0)            # black 3 px under
+        sw $t1, 384($t0)            # black 4 px under
+        addi $t0, $t0, -4            # move 1 px left
+    end_bb_loop:
+    
+    lw $t0, 0($sp)                  # restore t0
+    lw $t1, 4($sp)                  # restore t1
+    addi $sp, $sp, 8
+    jr $ra
+end_draw_black_box:
+
 # FUNCTION: draw a single paddle (save paddle location to $s0)
 # param: 
 #		$a0 - left most location
@@ -467,7 +553,7 @@ draw_wall:
 	sw $s0, 0($sp)				# save $s0 in current sp
 	
 	move $s0, $a0			# move starting address to $s0
-	addi $t5, $zero, 31		# $t5 = 31 (32 rows total)
+	addi $t5, $zero, 41		# $t5 = 41 (42 rows total)
 	addi $t6, $zero, 128	# $t6 = 128 (4 bytes per address x 32 pixels)
 	mult $t5, $t6			# lo = bottom pixel offset
 	mflo $t5				# $t5 = bottom pixel offset
@@ -765,16 +851,21 @@ move_ball:
 	sw $a1, BALL_Y			# update BALL_Y value
 	
 	# a0 = BALL_X, a1 = BALL_Y
-	# Check if ball outside region
-	blt $a1, 32, no_death	# if BALL_Y < 32 (upper bound), branch out
-		# otherwise, jump to death function
-		jal die
-	no_death:
 	
 	# DRAW BALL AT NEW LOCATION
 	# a0 = BALL_X, a1 = BALL_Y
 	lw $a3, BALL_COLOUR		# load ball colour from mem
 	jal draw_ball			# draw ball at new location
+	
+	# Check if ball outside region
+	blt $a1, 42, no_death	# if BALL_Y < 42 (upper bound), branch out
+    	lw $a0, BALL_X
+    	lw $a1, BALL_Y
+    	lw $a3, BLACK
+    	jal draw_ball
+		# otherwise, jump to death function
+		jal die
+	no_death:
 	
 	bne $t6, 1, no_y_collide
         move $a0, $t4       # recall that t4 stores the colour of collided object
@@ -1075,6 +1166,8 @@ check_paddle_collisions:
             # middle (launch straight up)
             li $t5, 0
             sw $t5, BALL_VELX
+            li $t5, -2
+            sw $t5, BALL_VELY
             j no_paddle_collision
         paddle_pos3:
             jal compute_direction
@@ -1182,14 +1275,42 @@ pause:
     addi $sp, $sp, 16
 end_pause:
 
-# checks if the player has died
+# checks if the player has any lives left. 
+# Respawn and decrement life if possible. Die otherwise
 die:
-	# TODO do something cooler
-	li $v0, 10				# quit game
-	syscall
-	jr $ra
+    addi $sp, $sp, -8
+    sw $t0, 0($sp)                  # store t0
+    sw $a0, 4($sp)                  # store a0
+    
+    lw $a0, HEART_LOC
+    jal draw_black_box
+    addi $a0, $a0, -36              # decrement by distance between hearts
+    sw $a0, HEART_LOC               # update new heart location
+    
+    lw $t0, LIVES                   # load num of lives left
+    bnez $t0, respawn               # run if lives == 0
+    	li $v0, 10				# quit game
+    	syscall
+    	# should never reach
+    	jr $ra
+	respawn:
+	   # reset xy position, xy velocities to default
+	   addi $t0, $t0, -1
+	   sw $t0, LIVES           # decrement life counter by 1
+	   li $t0, 16
+	   sw $t0, BALL_X          # reset ball x val to 16
+	   li $t0, 20
+	   sw $t0, BALL_Y          # reset ball y val to 20
+	   li $t0, 1
+	   sw $t0, BALL_VELX
+	   sw $t0, BALL_VELY       # set both xy vel to 1
+	   
+	lw $t0, 0($sp)             # restore t0     
+	lw $a0, 4($sp)            # restore a0
+	addi $sp, $sp, 8          
+	# RETURN
+    jr $ra
 end_die:
-
 
 # QUIT FUNCTION
 key_q:
