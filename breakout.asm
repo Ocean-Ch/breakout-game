@@ -21,6 +21,7 @@ ADDR_DSPL:			.word 0x10008000
 ADDR_KBRD:			.word 0xffff0000
 # Constant color values
 WALL_CLR:			.word 0xc0c0c0
+BLOCK_CLR:          .word 0x165D5B     # unbreakable blocks
 RED:				.word 0xff0000
 GREEN:				.word 0x00ff00
 BLUE:				.word 0x0000ff
@@ -39,7 +40,7 @@ BALL_COLOUR:		.word 0xff00ff
 
 # INITIAL BALL POSITION AND VELOCITIES
 BALL_X:				.word 16
-BALL_Y:				.word 16
+BALL_Y:				.word 17
 BALL_VELX:			.word 0
 BALL_VELY:			.word 1
 # BALL SPEED
@@ -56,6 +57,7 @@ PITCH:              .word 59    # middle C
 	# Run the Brick Breaker game.
 main:
     # Initialize the game
+    # ========================= INITIALIZE STARTING SCREEN =================
     lw $t1, RED        # $t1 = red
     lw $t2, GREEN        # $t2 = green
     lw $t3, BLUE        # $t3 = blue
@@ -132,6 +134,50 @@ end_ceil:
 	# create magenta colour as third arg
 	lw $a3, BALL_COLOUR
 	jal draw_ball
+	
+# draw unbreakable bricks
+    # recall: a0 - left most location, a1 - colour, a2 - length
+    # ============================ DRAW ROW 3 BLOCKS ==========================
+    lw $a1, BLOCK_CLR       # load block colour
+    li $a0, 3
+    li $a1, 3
+    jal compute_loc
+    move $a0, $v0           # a0 - absolute address of (4, 3)
+    lw $a1, BLOCK_CLR       # load block colour
+    li $a2, 28              # a2 - size 7 (7 * 4)
+    jal draw_unbreakable    # draw unbreakable at (4, 3) size 7
+    li $a0, 21
+    li $a1, 3
+    jal compute_loc
+    move $a0, $v0           # a0 - absolute address of (22, 3)
+    lw $a1, BLOCK_CLR       # load block colour
+    # let size remain the same (7)
+    jal draw_unbreakable
+    # ============================= DRAW ROW 16 BLOCK ==========================
+    li $a0, 10
+    li $a1, 16
+    jal compute_loc
+    move $a0, $v0           # a0 - absolute address of (11, 16)
+    lw $a1, BLOCK_CLR       # load block colour
+    li $a2, 44              # size 13 (11 * 4)
+    jal draw_unbreakable
+    # ============================= DRAW ROW 21 BLOCKS =======================
+    li $a0, 1
+    li $a1, 21
+    jal compute_loc         # absolute address of (2, 21)
+    move $a0, $v0
+    lw $a1, BLOCK_CLR       # load block colour
+    li $a2, 8              # size 2 (2 * 4)
+    jal draw_unbreakable
+    li $a0, 28
+    li $a1, 20
+    jal compute_loc
+    move $a0, $v0           # a0 -0 absolute address of (29, 21)
+    lw $a1, BLOCK_CLR       # load block colour
+    # a2 remains to be 8 (size 2)
+    jal draw_unbreakable
+
+# ================================ FUNCTIONS ===================================
 
 # FUNCTION: draw ball at given xy coords
 #	param:
@@ -274,6 +320,39 @@ draw_broken_brick:
 	# return
 	jr $ra
 end_draw_broken_brick:
+
+# FUNCTION: draw an unbreakable object (size given by length)
+# param: 
+#		$a0 - left most location
+#		$a1 - colour of brick
+#		$a2 - length of brick
+j end_unbreakable
+draw_unbreakable:
+	# allocate mem on stack
+	addi $sp, $sp, -4
+	sw $s0, 0($sp)			# store $s0 on top of stack
+	add $s0, $a0, $a2		# s0 = last pixel of the obj
+	
+	addi $sp, $sp, -4
+	sw $t1, 0($sp)			# store $t1 on stack
+	
+	# start drawing brick from right to left
+	dub_loop:
+	beq $s0, $a0, end_dub_loop	# while s0 != a0
+		sw $a1, 0($s0)			# draw pixel with colour a1 to s0
+		addi $s0, $s0, -4	# move pixel left by 1
+		j dub_loop
+	end_dub_loop:
+	
+	# restore register values
+	lw $t1, 0($sp)
+	addi $sp, $sp, 4
+	lw $s0, 0($sp)
+	addi $sp, $sp, 4
+	
+	# return
+	jr $ra
+end_unbreakable:
 
 # FUNCTION: draw a single paddle (save paddle location to $s0)
 # param: 
@@ -433,10 +512,9 @@ game_loop:
     jal move_ball
     # SLEEP FOR 7 ms
     li $v0, 32
-    li $a0, 7
+    li $a0, 10
     syscall
     b game_loop
-
 
 # FUNCTION: keyboard_inputs
 keyboard_inputs:
